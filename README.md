@@ -1,4 +1,4 @@
-# bbarm64-emu
+# bbarm64-emu (Block-based ARM64 Emulator.)
 
 **v1.1** — A high-performance ARM64-to-x86_64 dynamic binary translator with JIT compilation.
 
