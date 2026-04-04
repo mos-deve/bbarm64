@@ -10,7 +10,6 @@
 #include <cstring>
 #include <cstdlib>
 #include <csetjmp>
-#include <csetjmp>
 
 namespace bbarm64 {
 
@@ -361,13 +360,24 @@ int ExecEngine::handle_syscall(CPUContext& ctx) {
 }
 
 void ExecEngine::signal_handler(int sig, siginfo_t* info, void* ucontext) {
-    (void)sig; (void)ucontext;
+    (void)ucontext;
+    if (sig == SIGTRAP) {
+        // INT3 in JIT code = syscall interception point
+        // Handle the syscall and advance past the INT3
+        if (s_instance) {
+            int64_t result = s_instance->handle_syscall(s_instance->ctx_);
+            s_instance->ctx_.x[0] = static_cast<uint64_t>(result);
+            // Advance PC past the INT3 (the INT3 was emitted at the end of a block,
+            // so the block already set pc to the next block's address)
+            // Don't crash, just return from the signal handler
+            return;
+        }
+    }
     if (s_instance && !(s_instance->ctx_.state_flags & CPUContext::STATE_SINGLE_STEP)) {
         fprintf(stderr, "\n[bbarm64] FATAL: Segmentation fault at host address %p\n", info->si_addr);
         fprintf(stderr, "[bbarm64] Current guest PC: 0x%016lx\n", s_instance ? s_instance->ctx_.pc : 0);
     }
     if (s_instance) s_instance->ctx_.state_flags |= CPUContext::STATE_CRASHED;
-    // Don't call _exit - let the run loop handle it
     longjmp(s_instance->crash_jmp_buf_, 1);
 }
 

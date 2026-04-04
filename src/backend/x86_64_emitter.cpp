@@ -138,10 +138,22 @@ void X86_64Emitter::emit_ror_reg_imm(uint8_t reg, uint8_t imm) {
     emit_byte(imm);
 }
 
-void X86_64Emitter::emit_not_reg(uint8_t reg) {
+void X86_64Emitter::emit_shl_reg_cl(uint8_t reg) {
     emit_rex(true, 0, 0, reg & 1);
-    emit_byte(0xF7);
-    emit_byte(0xD0 | (reg & 7));
+    emit_byte(0xD3);
+    emit_byte(0xE0 | (reg & 7));
+}
+
+void X86_64Emitter::emit_shr_reg_cl(uint8_t reg) {
+    emit_rex(true, 0, 0, reg & 1);
+    emit_byte(0xD3);
+    emit_byte(0xE8 | (reg & 7));
+}
+
+void X86_64Emitter::emit_sar_reg_cl(uint8_t reg) {
+    emit_rex(true, 0, 0, reg & 1);
+    emit_byte(0xD3);
+    emit_byte(0xF8 | (reg & 7));
 }
 
 void X86_64Emitter::emit_neg_reg(uint8_t reg) {
@@ -251,6 +263,34 @@ void X86_64Emitter::emit_cmovcc_reg_reg(uint8_t cc, uint8_t dst, uint8_t src) {
     emit_rex(true, (src >> 3) & 1, 0, (dst >> 3) & 1);
     emit_byte(0x0F);
     emit_byte(0x40 | cc);
+    emit_byte(0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+void X86_64Emitter::emit_movzx_reg8_reg(uint8_t dst, uint8_t src) {
+    emit_rex(true, (src >> 3) & 1, 0, (dst >> 3) & 1);
+    emit_byte(0x0F);
+    emit_byte(0xB6);
+    emit_byte(0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+void X86_64Emitter::emit_movzx_reg16_reg(uint8_t dst, uint8_t src) {
+    emit_rex(true, (src >> 3) & 1, 0, (dst >> 3) & 1);
+    emit_byte(0x0F);
+    emit_byte(0xB7);
+    emit_byte(0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+void X86_64Emitter::emit_movsx_reg8_reg(uint8_t dst, uint8_t src) {
+    emit_rex(true, (src >> 3) & 1, 0, (dst >> 3) & 1);
+    emit_byte(0x0F);
+    emit_byte(0xBE);
+    emit_byte(0xC0 | ((src & 7) << 3) | (dst & 7));
+}
+
+void X86_64Emitter::emit_movsx_reg16_reg(uint8_t dst, uint8_t src) {
+    emit_rex(true, (src >> 3) & 1, 0, (dst >> 3) & 1);
+    emit_byte(0x0F);
+    emit_byte(0xBF);
     emit_byte(0xC0 | ((src & 7) << 3) | (dst & 7));
 }
 
@@ -368,6 +408,12 @@ void X86_64Emitter::emit_cmp_reg_imm(uint8_t reg, uint64_t imm) {
         emit_rex(true, 0, 0, 0);
         emit_byte(0x3D);
         emit_qword(imm);
+    }
+}
+
+void X86_64Emitter::patch_dword_at(size_t offset, uint32_t value) {
+    if (buf_ && offset + 4 <= size_) {
+        *reinterpret_cast<uint32_t*>(buf_ + offset) = value;
     }
 }
 

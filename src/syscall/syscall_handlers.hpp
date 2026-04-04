@@ -33,6 +33,7 @@ private:
     int64_t handle_gettid(CPUContext& ctx);
     int64_t handle_prctl(CPUContext& ctx);
     int64_t handle_arch_prctl(CPUContext& ctx);
+    int64_t handle_set_thread_area(CPUContext& ctx);
     int64_t handle_rt_sigreturn(CPUContext& ctx);
     int64_t handle_getrandom(CPUContext& ctx);
     int64_t handle_mmap2(CPUContext& ctx);

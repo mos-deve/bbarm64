@@ -16,12 +16,13 @@
 #include <cstring>
 #include <csignal>
 #include <sys/mman.h>
-#include <sys/mman.h>
+#include <elf.h>
 
 using namespace bbarm64;
 
 static void print_usage(const char* prog) {
-    fprintf(stderr, "bbarm64 v1.1 - ARM64 to x86_64 Dynamic Binary Translator\n");
+    fprintf(stderr, "bbarm64 v1.2 - ARM64 to x86_64 Dynamic Binary Translator\n");
+    fprintf(stderr, "Developed by FAE (Fast Arm Emulation) group\n");
     fprintf(stderr, "Usage: %s <arm64_binary> [args...]\n", prog);
     fprintf(stderr, "\nEnvironment variables:\n");
     fprintf(stderr, "  BBARM64_DUMP=1           Dump translated blocks\n");
@@ -29,7 +30,9 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  BBARM64_LOG_SIGNALS=1    Log all signals\n");
     fprintf(stderr, "  BBARM64_SMC_DETECT=0     Disable SMC detection\n");
     fprintf(stderr, "  BBARM64_MAX_BLOCK=N      Max instructions per block (default: 64)\n");
-    fprintf(stderr, "  BBARM64_CACHE_SIZE=N     Cache size in MB (default: 64)\n");
+    fprintf(stderr, "  BBARM64_CACHE_SIZE=N     FAE-Cache size in MB (default: 64)\n");
+    fprintf(stderr, "  BBARM64_AOT_DIR=path     AOT cache directory\n");
+    fprintf(stderr, "  BBARM64_MODE=jit|aot|hybrid  Execution mode (default: jit)\n");
 }
 
 int main(int argc, char* argv[]) {
@@ -41,12 +44,13 @@ int main(int argc, char* argv[]) {
     // Load configuration
     Config config = Config::load();
 
-    // Set up signal handler for SMC detection
+    // Set up signal handler for SMC detection and syscall interception
     struct sigaction sa;
     sa.sa_sigaction = ExecEngine::signal_handler;
     sigemptyset(&sa.sa_mask);
     sa.sa_flags = SA_SIGINFO;
     sigaction(SIGSEGV, &sa, nullptr);
+    sigaction(SIGTRAP, &sa, nullptr);
 
     LOG_INFO("bbarm64 v1.1 starting...");
     LOG_INFO("Loading: %s", argv[1]);
@@ -82,10 +86,17 @@ int main(int argc, char* argv[]) {
             elf_info.entry_point, elf_info.base_addr, elf_info.is_dynamic);
 
     // Load dependent libraries if dynamic
+    uint64_t tls_block_addr = 0;
     if (elf_info.is_dynamic) {
         DynLink dynlink(mem);
-        // In a full implementation, parse .dynamic section and load NEEDED libraries
-        LOG_INFO("Dynamic binary - library loading stub active");
+        LOG_INFO("Dynamic binary - fake ld.so active");
+
+        // Allocate TLS block for dynamic binaries
+        tls_block_addr = TLSEmu::allocate_tls_block(4096, mem);
+        if (tls_block_addr) {
+            ctx.tpidr_el0 = tls_block_addr;
+            LOG_INFO("TLS block allocated at 0x%lx", tls_block_addr);
+        }
     }
 
     // Set up initial CPU context
@@ -101,13 +112,24 @@ int main(int argc, char* argv[]) {
     uint64_t sp = stack_base + stack_size;
     sp &= ~0xFULL; // 16-byte align
 
-    // Push auxv entries (from high to low addresses)
-    // auxv: AT_NULL terminator
-    sp -= 16; // key=0, val=0
+    // ARM64 stack layout (from high to low addresses):
+    // [sp] = argc
+    // [sp+8] = argv[0]
+    // [sp+16] = NULL (end of argv)
+    // [sp+24] = NULL (end of envp)
+    // [sp+32] = auxv[0].type
+    // [sp+40] = auxv[0].val
+    // ...
+    // [sp+N] = 0 (AT_NULL type)
+    // [sp+N+8] = 0 (AT_NULL val)
+
+    // First, push auxv entries (from high to low addresses)
+    // AT_NULL terminator
+    sp -= 16;
     mem.write_u64(sp, 0);
     mem.write_u64(sp + 8, 0);
 
-    // AT_RANDOM pointer (just point to zeros)
+    // AT_RANDOM
     sp -= 16;
     mem.write_u64(sp, 25); // AT_RANDOM
     uint64_t random_addr = sp - 16;
@@ -118,28 +140,55 @@ int main(int argc, char* argv[]) {
 
     // AT_PHNUM
     sp -= 16;
-    mem.write_u64(sp, 5); // AT_PHNUM
+    mem.write_u64(sp, 5);
     mem.write_u64(sp + 8, elf_info.phnum);
 
     // AT_PHDR
     sp -= 16;
-    mem.write_u64(sp, 3); // AT_PHDR
+    mem.write_u64(sp, 3);
     mem.write_u64(sp + 8, elf_info.base_addr + elf_info.phdr_offset);
 
     // AT_ENTRY
     sp -= 16;
-    mem.write_u64(sp, 9); // AT_ENTRY
+    mem.write_u64(sp, 9);
     mem.write_u64(sp + 8, elf_info.entry_point);
 
     // AT_HWCAP
     sp -= 16;
-    mem.write_u64(sp, 16); // AT_HWCAP
-    mem.write_u64(sp + 8, 0);
+    mem.write_u64(sp, 16);
+    mem.write_u64(sp + 8, 0x0000000000000FFFULL);
 
     // AT_PAGESZ
     sp -= 16;
-    mem.write_u64(sp, 6); // AT_PAGESZ
+    mem.write_u64(sp, 6);
     mem.write_u64(sp + 8, 4096);
+
+    // AT_SECURE
+    sp -= 16;
+    mem.write_u64(sp, 23);
+    mem.write_u64(sp + 8, 0);
+
+    // AT_EXECFN
+    sp -= 16;
+    mem.write_u64(sp, 31);
+    uint64_t execfn_addr = sp - 64;
+    const char* execfn = argv[1];
+    size_t execfn_len = strlen(execfn) + 1;
+    if (execfn_len > 64) execfn_len = 64;
+    for (size_t i = 0; i < execfn_len; i++) {
+        mem.write_u8(execfn_addr + i, static_cast<uint8_t>(execfn[i]));
+    }
+    mem.write_u64(sp + 8, execfn_addr);
+
+    // AT_TLS (for dynamic binaries)
+    if (tls_block_addr) {
+        sp -= 16;
+        mem.write_u64(sp, 23);
+        mem.write_u64(sp + 8, tls_block_addr);
+    }
+
+    // Save auxv pointer (current sp points to first auxv entry)
+    uint64_t auxv_start = sp;
 
     // envp: NULL terminator
     sp -= 8;
@@ -149,7 +198,7 @@ int main(int argc, char* argv[]) {
     sp -= 8;
     mem.write_u64(sp, 0);
 
-    // Push argv[0] string
+    // argv[0] string and pointer
     uint64_t argv0_addr = sp - 64;
     const char* argv0 = argv[1];
     size_t argv0_len = strlen(argv0) + 1;
@@ -164,8 +213,20 @@ int main(int argc, char* argv[]) {
     sp -= 8;
     mem.write_u64(sp, 1);
 
+    // Align stack to 16 bytes
+    sp &= ~0xFULL;
+
     ctx.sp = sp;
     ctx.lr = 0;
+
+    // Set x0 to auxv pointer (ARM64 ABI: x0 = auxv at entry)
+    ctx.x[0] = auxv_start;
+
+    // Set up TLS for the main thread
+    if (tls_block_addr) {
+        TLSEmu tls;
+        tls.set_tls_base(tls_block_addr);
+    }
 
     // Create execution engine
     ExecEngine engine(ctx, mem, cache);

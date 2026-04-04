@@ -24,6 +24,7 @@ private:
     void load_arm_reg(uint8_t arm_reg, uint8_t xreg);
     void store_arm_reg(uint8_t xreg, uint8_t arm_reg);
     void save_nzcv();
+    void load_nzcv();
     void emit_block_ret(uint64_t target_pc);
 };
 

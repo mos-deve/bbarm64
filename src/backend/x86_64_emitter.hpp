@@ -50,8 +50,10 @@ public:
     void emit_shl_reg_imm(uint8_t reg, uint8_t imm);
     void emit_shr_reg_imm(uint8_t reg, uint8_t imm);
     void emit_sar_reg_imm(uint8_t reg, uint8_t imm);
+    void emit_shl_reg_cl(uint8_t reg);
+    void emit_shr_reg_cl(uint8_t reg);
+    void emit_sar_reg_cl(uint8_t reg);
     void emit_ror_reg_imm(uint8_t reg, uint8_t imm);
-    void emit_not_reg(uint8_t reg);
     void emit_neg_reg(uint8_t reg);
     void emit_cmp_reg_reg(uint8_t dst, uint8_t src);
     void emit_test_reg_reg(uint8_t dst, uint8_t src);
@@ -109,6 +111,12 @@ public:
 
     // Get emitted code size
     size_t code_size() const { return offset_; }
+
+    // Patch a 32-bit value at a given offset (for forward references)
+    void patch_dword_at(size_t offset, uint32_t value);
+
+    // Get buffer pointer for direct access
+    uint8_t* buffer() const { return buf_; }
 
 private:
     uint8_t* buf_;

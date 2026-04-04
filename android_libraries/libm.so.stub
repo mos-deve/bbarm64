@@ -1,0 +1,12 @@
+# libm.so - Android Math Library Stub
+# Wired up in DynLink but not actively used yet
+#
+# Key symbols:
+#   sin, cos, tan, sqrt, pow, exp, log, log10
+#   floor, ceil, round, fabs, fmod
+#   sinf, cosf, sqrtf (single-precision variants)
+#
+# Notes:
+#   - Most math functions are implemented in software on ARM64
+#   - SIMD/FP instructions (FADD, FMUL, etc.) handle the actual computation
+#   - AVX2 backend translates these to x86_64 equivalents

@@ -1,0 +1,13 @@
+# libc.so - Android C Library Stub
+# Wired up in DynLink but not actively used yet
+#
+# Key symbols:
+#   printf, malloc, free, memcpy, memset, strlen, strcmp
+#   open, close, read, write, mmap, munmap
+#   pthread_create, pthread_mutex_lock, pthread_exit
+#   __libc_init_common, __libc_init_main
+#
+# Notes:
+#   - Android's libc is based on Bionic, not glibc
+#   - Entry point for dynamically-linked binaries goes through __libc_init_main
+#   - TLS setup is handled by the linker before calling main

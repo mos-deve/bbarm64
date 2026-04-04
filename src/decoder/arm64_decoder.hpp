@@ -41,6 +41,8 @@ struct DecodedInstr {
     bool sets_flags;           // Does this instruction set NZCV?
     bool is_pc_relative;       // Is this a PC-relative load?
     uint32_t branch_offset;    // Branch offset (for B, BL)
+    uint8_t q;                 // SIMD Q bit (0=64-bit, 1=128-bit)
+    uint8_t vd;                // SIMD destination vector register
 };
 
 // ARM64 decoder
@@ -71,6 +73,7 @@ private:
     bool decode_system(uint32_t instr, DecodedInstr& out);
     bool decode_pcrel(uint32_t instr, DecodedInstr& out);
     bool decode_test_branch(uint32_t instr, DecodedInstr& out);
+    bool decode_simd(uint32_t instr, DecodedInstr& out);
 };
 
 } // namespace bbarm64

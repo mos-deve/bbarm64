@@ -66,6 +66,33 @@ bool IRBuilder::build_instr(const DecodedInstr& instr, uint64_t pc, IRBlock& blo
             block.instructions.push_back(ir);
             break;
 
+        case 0x04: // ASR (arithmetic shift right)
+            ir.op = IROpcode::SAR;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = IR_IMM;
+            ir.imm = instr.imm;
+            block.instructions.push_back(ir);
+            break;
+
+        case 0x05: // LSR (logical shift right)
+            ir.op = IROpcode::SHR;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = IR_IMM;
+            ir.imm = instr.imm;
+            block.instructions.push_back(ir);
+            break;
+
+        case 0x06: // LSL (logical shift left)
+            ir.op = IROpcode::SHL;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = IR_IMM;
+            ir.imm = instr.imm;
+            block.instructions.push_back(ir);
+            break;
+
         case 0x20:
             ir.op = IROpcode::SET_REG;
             ir.dest = instr.rd;
@@ -118,7 +145,9 @@ bool IRBuilder::build_instr(const DecodedInstr& instr, uint64_t pc, IRBlock& blo
 
         case 0x50: {
             ir.op = IROpcode::JMP;
-            ir.imm = pc + instr.branch_offset;
+            // Sign-extend branch_offset from uint32_t to int64_t
+            int64_t offset = static_cast<int64_t>(static_cast<int32_t>(instr.branch_offset));
+            ir.imm = static_cast<uint64_t>(static_cast<int64_t>(pc) + offset);
             block.instructions.push_back(ir);
             break;
         }
@@ -132,7 +161,8 @@ bool IRBuilder::build_instr(const DecodedInstr& instr, uint64_t pc, IRBlock& blo
             block.instructions.push_back(save_lr);
 
             ir.op = IROpcode::CALL;
-            ir.imm = pc + instr.branch_offset;
+            int64_t offset = static_cast<int64_t>(static_cast<int32_t>(instr.branch_offset));
+            ir.imm = static_cast<uint64_t>(static_cast<int64_t>(pc) + offset);
             block.instructions.push_back(ir);
             break;
         }
@@ -262,6 +292,70 @@ bool IRBuilder::build_instr(const DecodedInstr& instr, uint64_t pc, IRBlock& blo
         case 0xFF: {
             ir.op = IROpcode::SYSCALL;
             ir.imm = instr.imm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        // SIMD/FP instructions
+        case 0xA0: { // VEC_DUP
+            ir.op = IROpcode::VEC_DUP;
+            ir.dest = instr.rd; // vector register index
+            ir.src1 = instr.rm; // GPR index
+            ir.imm = instr.size; // element size
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA1: { // VEC_ADD
+            ir.op = IROpcode::VEC_ADD8;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA2: { // VEC_SUB
+            ir.op = IROpcode::VEC_SUB8;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA3: { // VEC_AND
+            ir.op = IROpcode::VEC_AND;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA4: { // VEC_OR
+            ir.op = IROpcode::VEC_OR;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA5: { // VEC_XOR
+            ir.op = IROpcode::VEC_XOR;
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
+            block.instructions.push_back(ir);
+            break;
+        }
+
+        case 0xA6: { // VEC_BIC
+            ir.op = IROpcode::VEC_AND; // BIC = AND NOT, approximate with AND for now
+            ir.dest = instr.rd;
+            ir.src1 = instr.rn;
+            ir.src2 = instr.rm;
             block.instructions.push_back(ir);
             break;
         }

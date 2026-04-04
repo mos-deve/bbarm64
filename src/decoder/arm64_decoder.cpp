@@ -48,6 +48,11 @@ bool ARM64Decoder::decode(uint32_t instr, DecodedInstr& out) {
 
     // Check for data processing register instructions first (op1 can be 0b101 for sf=1)
     uint32_t op28_24 = bits(instr, 28, 24);
+    // ADD/SUB immediate must be checked before data_proc_reg routing
+    if (op1 == 0b101 && (bits(instr, 30, 24) == 0b0010001 || bits(instr, 30, 24) == 0b1010001 ||
+        bits(instr, 30, 24) == 0b0110001 || bits(instr, 30, 24) == 0b1110001)) {
+        return decode_data_proc_imm(instr, out);
+    }
     if (op1 == 0b101 && (op28_24 <= 0b01011 || op28_24 == 0b10000 || op28_24 == 0b10001 ||
                           op28_24 == 0b10010 || op28_24 == 0b10011 || op28_24 == 0b11000 ||
                           op28_24 == 0b11001)) {
@@ -86,9 +91,23 @@ bool ARM64Decoder::decode(uint32_t instr, DecodedInstr& out) {
         return decode_data_proc_imm(instr, out);
     }
 
-    // MOVZ/MOVK/MOVN: bits[28:23] = 0b100101 (check before load_store routing)
-    if (bits(instr, 28, 23) == 0b100101) {
+    // ADD/SUB (immediate): bits[30:24] = 0b0010001 (ADD) or 0b1010001 (SUB)
+    // Must check BEFORE load/store routing since op1=0b111 matches both
+    if (bits(instr, 30, 24) == 0b0010001 || bits(instr, 30, 24) == 0b1010001 ||
+        bits(instr, 30, 24) == 0b0110001 || bits(instr, 30, 24) == 0b1110001) {
         return decode_data_proc_imm(instr, out);
+    }
+
+    // B.cond: bits[31:25] = 0b0101010
+    // Must check BEFORE load/store routing since op1 can match
+    if (bits(instr, 31, 25) == 0b0101010) {
+        return decode_branch(instr, out);
+    }
+
+    // BR/RET: bits[31:26]=0b110101, bits[15:10]=0, bits[4:0]=0
+    // Must check BEFORE data_proc_imm routing since op1=0b110 matches
+    if (bits(instr, 31, 26) == 0b110101 && bits(instr, 15, 10) == 0 && bits(instr, 4, 0) == 0) {
+        return decode_branch(instr, out);
     }
 
     if (op1 == 0b001 || op1 == 0b010 || op1 == 0b011 || op1 == 0b111) {
@@ -96,6 +115,10 @@ bool ARM64Decoder::decode(uint32_t instr, DecodedInstr& out) {
     }
 
     if (op1 == 0b000 || op1 == 0b010 || op1 == 0b100 || op1 == 0b110) {
+        // SBFM/UBFM/BFM must be checked before data_proc_reg
+        if (bits(instr, 28, 23) == 0b100110 || bits(instr, 28, 23) == 0b100111) {
+            if (decode_data_proc_imm(instr, out)) return true;
+        }
         uint32_t op = bits(instr, 30, 29);
         if (op == 0b00 || op == 0b01) {
             if (decode_data_proc_reg(instr, out)) return true;
@@ -110,14 +133,14 @@ bool ARM64Decoder::decode(uint32_t instr, DecodedInstr& out) {
         return decode_data_proc_imm(instr, out);
     }
 
-    // ADD/SUB (immediate): bits[30:24] = 0b0010001 (ADD) or 0b1010001 (SUB)
-    if (bits(instr, 30, 24) == 0b0010001 || bits(instr, 30, 24) == 0b1010001) {
-        return decode_data_proc_imm(instr, out);
-    }
-
     // System instructions (NOP, DMB, DSB, ISB, MRS, MSR): bits[31:25] = 0b1101010
     if (op25 == 0b1101010) {
         return decode_system(instr, out);
+    }
+
+    // SIMD/FP: bits[31:29] = 0b010 or 0b011
+    if (op1 == 0b010 || op1 == 0b011) {
+        if (decode_simd(instr, out)) return true;
     }
 
     out.category = InstrCategory::UNKNOWN;
@@ -256,8 +279,8 @@ bool ARM64Decoder::decode_data_proc_imm(uint32_t instr, DecodedInstr& out) {
     uint32_t sf = bits(instr, 31, 31);
     out.size = sf;
 
-    // ADD (immediate): bits[30:24]=0b0010001
-    if (bits(instr, 30, 24) == 0b0010001) {
+    // ADD/ADDS (immediate): bits[30:24]=0b0010001 (ADD) or 0b0110001 (ADDS)
+    if (bits(instr, 30, 24) == 0b0010001 || bits(instr, 30, 24) == 0b0110001) {
         out.category = InstrCategory::INTEGER_ARITH;
         out.opcode = 0x00;
         out.rd = bits(instr, 4, 0);
@@ -269,8 +292,8 @@ bool ARM64Decoder::decode_data_proc_imm(uint32_t instr, DecodedInstr& out) {
         return true;
     }
 
-    // SUB (immediate): bits[30:24]=0b1010001
-    if (bits(instr, 30, 24) == 0b1010001) {
+    // SUB/SUBS (immediate): bits[30:24]=0b1010001 (SUB) or 0b1110001 (SUBS)
+    if (bits(instr, 30, 24) == 0b1010001 || bits(instr, 30, 24) == 0b1110001) {
         out.category = InstrCategory::INTEGER_ARITH;
         out.opcode = 0x01;
         out.rd = bits(instr, 4, 0);
@@ -279,6 +302,39 @@ bool ARM64Decoder::decode_data_proc_imm(uint32_t instr, DecodedInstr& out) {
         out.imm = bits(instr, 21, 10);
         if (bits(instr, 22, 22)) out.imm <<= 12;
         out.sets_flags = bits(instr, 30, 30);
+        return true;
+    }
+
+    // SBFM/UBFM/BFM (bitfield moves: ASR, LSR, LSL, BFI, BFXIL, SBFX, UBFX)
+    // SBFM: bits[28:23]=0b100110, UBFM: bits[28:23]=0b100111
+    if (bits(instr, 28, 23) == 0b100110 || bits(instr, 28, 23) == 0b100111) {
+        uint32_t immr = bits(instr, 21, 16);
+        uint32_t imms = bits(instr, 15, 10);
+        bool is_sbfm = (bits(instr, 28, 23) == 0b100110);
+
+        out.category = InstrCategory::INTEGER_ARITH;
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 9, 5);
+        out.rm = 0xFF;
+
+        if (is_sbfm && imms == 63) {
+            // ASR: SBFM with imms=63, shift = immr
+            out.opcode = 0x04; // ASR
+            out.imm = immr;
+        } else if (!is_sbfm && imms == 63) {
+            // LSR: UBFM with imms=63, shift = immr
+            out.opcode = 0x05; // LSR
+            out.imm = immr;
+        } else if (!is_sbfm && imms == (63 - immr)) {
+            // LSL: UBFM with imms=63-immr
+            out.opcode = 0x06; // LSL
+            out.imm = immr;
+        } else {
+            // Generic bitfield extract/insert - use SBFX/UBFX
+            out.opcode = is_sbfm ? 0x07 : 0x08; // SBFX/UBFX
+            out.imm = immr;
+            out.imm_s = imms;
+        }
         return true;
     }
 
@@ -314,17 +370,21 @@ bool ARM64Decoder::decode_branch(uint32_t instr, DecodedInstr& out) {
         return true;
     }
 
-    if (bits(instr, 31, 21) == 0b11010110000 && bits(instr, 9, 0) == 0) {
-        out.category = InstrCategory::BRANCH;
-        out.opcode = 0x53;
-        out.rn = bits(instr, 9, 5);
-        return true;
-    }
-
-    if (bits(instr, 31, 21) == 0b11010110000 && bits(instr, 9, 0) == 0b000000) {
-        out.category = InstrCategory::BRANCH;
-        out.opcode = 0x52;
-        out.rn = bits(instr, 9, 5);
+    // BR/RET: bits[31:26]=0b110101, bits[15:10]=0, bits[4:0]=0
+    // bits[25:22]=0b1000 for BR, bits[25:22]=0b1001 for RET variant
+    // bits[9:5] = Rn
+    if (bits(instr, 31, 26) == 0b110101 && bits(instr, 15, 10) == 0 && bits(instr, 4, 0) == 0) {
+        if (bits(instr, 9, 5) == 30) {
+            // RET (common case: return to LR)
+            out.category = InstrCategory::BRANCH;
+            out.opcode = 0x53;
+            out.rn = 30;
+        } else {
+            // BR (branch to register)
+            out.category = InstrCategory::BRANCH;
+            out.opcode = 0x52;
+            out.rn = bits(instr, 9, 5);
+        }
         return true;
     }
 
@@ -400,52 +460,6 @@ bool ARM64Decoder::decode_load_store(uint32_t instr, DecodedInstr& out) {
         return true;
     }
 
-    // LDR/STR (register): bits[28:26] = 0b110
-    if (b28_26 == 0b110) {
-        out.category = InstrCategory::LOAD_STORE;
-        out.rt = bits(instr, 4, 0);
-        out.rn = bits(instr, 9, 5);
-        out.rm = bits(instr, 20, 16);
-        out.shift_type = bits(instr, 13, 12);
-        out.imm = 0;
-        bool is_load = bits(instr, 22, 22);
-        if (is_load) {
-            if (opc == 0b11) out.opcode = 0x63;
-            else if (opc == 0b10) out.opcode = 0x62;
-            else if (opc == 0b01) out.opcode = 0x61;
-            else out.opcode = 0x60;
-        } else {
-            if (opc == 0b11) out.opcode = 0x73;
-            else if (opc == 0b10) out.opcode = 0x72;
-            else if (opc == 0b01) out.opcode = 0x71;
-            else out.opcode = 0x70;
-        }
-        return true;
-    }
-
-    // LDR/STR (register): bits[28:26] = 0b110
-    if (b28_26 == 0b110) {
-        out.category = InstrCategory::LOAD_STORE;
-        out.rt = bits(instr, 4, 0);
-        out.rn = bits(instr, 9, 5);
-        out.rm = bits(instr, 20, 16);
-        out.shift_type = bits(instr, 13, 12);
-        out.imm = 0;
-        bool is_load = bits(instr, 22, 22);
-        if (is_load) {
-            if (opc == 0b11) out.opcode = 0x63;
-            else if (opc == 0b10) out.opcode = 0x62;
-            else if (opc == 0b01) out.opcode = 0x61;
-            else out.opcode = 0x60;
-        } else {
-            if (opc == 0b11) out.opcode = 0x73;
-            else if (opc == 0b10) out.opcode = 0x72;
-            else if (opc == 0b01) out.opcode = 0x71;
-            else out.opcode = 0x70;
-        }
-        return true;
-    }
-
     // LDR/STR (pre/post index): bits[28:26] = 0b011
     if (b28_26 == 0b011) {
         out.category = InstrCategory::LOAD_STORE;
@@ -455,6 +469,29 @@ bool ARM64Decoder::decode_load_store(uint32_t instr, DecodedInstr& out) {
         int32_t imm9 = sign_extend(bits(instr, 20, 12), 9);
         out.imm_s = imm9;
         out.imm = imm9;
+        bool is_load = bits(instr, 22, 22);
+        if (is_load) {
+            if (opc == 0b11) out.opcode = 0x63;
+            else if (opc == 0b10) out.opcode = 0x62;
+            else if (opc == 0b01) out.opcode = 0x61;
+            else out.opcode = 0x60;
+        } else {
+            if (opc == 0b11) out.opcode = 0x73;
+            else if (opc == 0b10) out.opcode = 0x72;
+            else if (opc == 0b01) out.opcode = 0x71;
+            else out.opcode = 0x70;
+        }
+        return true;
+    }
+
+    // LDR/STR (register): bits[28:26] = 0b110
+    if (b28_26 == 0b110) {
+        out.category = InstrCategory::LOAD_STORE;
+        out.rt = bits(instr, 4, 0);
+        out.rn = bits(instr, 9, 5);
+        out.rm = bits(instr, 20, 16);
+        out.shift_type = bits(instr, 13, 12);
+        out.imm = 0;
         bool is_load = bits(instr, 22, 22);
         if (is_load) {
             if (opc == 0b11) out.opcode = 0x63;
@@ -652,6 +689,101 @@ const char* ARM64Decoder::mnemonic(const DecodedInstr& instr) {
         case 0x95: return "MSR";
         default: return "???";
     }
+}
+
+// SIMD/FP decoder - handles NEON instructions
+bool ARM64Decoder::decode_simd(uint32_t instr, DecodedInstr& out) {
+    uint32_t b31_24 = bits(instr, 31, 24);
+
+    // DUP (general register to vector): bits[31:24] = 0x4E, bits[20:16] = 0, bits[14:10] = 0
+    // DUP v0.16B, w1 = 0x4E010C20
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0 && bits(instr, 14, 10) == 0) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA0; // VEC_DUP
+        out.rd = bits(instr, 4, 0);  // Vd
+        out.rn = bits(instr, 5, 5);  // bit 5: 0 = from GPR, 1 = from vector
+        out.rm = bits(instr, 9, 5);  // Rn (GPR index)
+        out.size = bits(instr, 23, 22); // element size: 00=8b, 01=4h, 10=2s, 11=1d
+        out.q = bits(instr, 30, 30); // Q bit: 1 = 128-bit
+        return true;
+    }
+
+    // ADD (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b10000
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x10) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA1; // VEC_ADD
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // SUB (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b10010
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x12) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA2; // VEC_SUB
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // AND (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b00000
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x00) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA3; // VEC_AND
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // ORR (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b00001
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x01) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA4; // VEC_OR
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // EOR (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b00010
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x02) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA5; // VEC_XOR
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // BIC (vector): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b00011
+    if (b31_24 == 0x4E && bits(instr, 20, 16) == 0x10 && bits(instr, 14, 10) == 0x03) {
+        out.category = InstrCategory::SIMD_FP;
+        out.opcode = 0xA6; // VEC_BIC
+        out.rd = bits(instr, 4, 0);
+        out.rn = bits(instr, 5, 5);
+        out.rm = bits(instr, 16, 16);
+        out.size = bits(instr, 23, 22);
+        out.q = bits(instr, 30, 30);
+        return true;
+    }
+
+    // MOV (vector register): bits[31:24] = 0x4E, bits[20:16] = 0b10000, bits[14:10] = 0b00001
+    // This is ORR with Vd=Vn=Vm, handled above as VEC_OR
+
+    return false;
 }
 
 } // namespace bbarm64

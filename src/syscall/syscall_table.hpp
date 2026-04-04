@@ -29,6 +29,7 @@ static const SyscallEntry syscall_table[] = {
     
     // File operations
     {56, 3, "close"},
+    {57, 3, "close"},
     {257, 257, "openat"},
     {23, 32, "dup"},
     {24, 292, "dup3"},
