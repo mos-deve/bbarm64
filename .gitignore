@@ -1,0 +1,46 @@
+# Build output
+build/
+*.o
+*.a
+*.so
+*.dylib
+
+# Backup files
+.backup/
+*.broken
+*.bak
+
+# Test binaries and compiled binaries
+hello_world_arm64
+hello_world_c
+hello_simple
+hello_glibc
+hello_glibc_static
+test_minimal_arm64
+test_segfault
+test_segfault_fix
+android_libraries/sum
+
+# Rust target
+rust/target/
+
+# IDE
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+direct_test.cpp
+test_handler.cpp
+test_include.cpp
+test_include.o
+test_segfault.c
+test_segfault_fix.cpp
+test_syscalls.cpp
+findings.md
