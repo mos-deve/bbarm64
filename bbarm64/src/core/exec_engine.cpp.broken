@@ -1,0 +1,237 @@
+#include "exec_engine.hpp"
+#include "decoder/arm64_decoder.hpp"
+#include "ir/ir.hpp"
+#include "backend/x86_64_emitter.hpp"
+#include "backend/x86_64_regalloc.hpp"
+#include "backend/x86_64_lower.hpp"
+#include "syscall/syscall_handlers.hpp"
+#include <cstdio>
+#include <csignal>
+#include <cstring>
+#include <unistd.h>
+#include <cstdlib>
+
+namespace bbarm64 {
+
+ExecEngine* ExecEngine::s_instance = nullptr;
+
+ExecEngine::ExecEngine(CPUContext& ctx, MemoryManager& mem, TranslationCache& cache)
+    : ctx_(ctx), mem_(mem), cache_(cache) {
+    s_instance = this;
+}
+
+void ExecEngine::run(uint64_t arm_pc) {
+    ctx_.pc = arm_pc;
+    ctx_.state_flags &= ~CPUContext::STATE_CRASHED;
+
+    while (!(ctx_.state_flags & CPUContext::STATE_CRASHED)) {
+        BlockInfo* block = cache_.lookup(ctx_.pc);
+        if (!block) {
+            // Translate the block
+            block = translate_block(ctx_.pc);
+            if (!block) {
+                fprintf(stderr, "[bbarm64] Failed to translate block at 0x%lx\n", ctx_.pc);
+                break;
+            }
+        }
+
+        // Execute the translated block only if it's valid and has code
+        if (block && block->is_valid && block->host_code) {
+            execute_block(block);
+        } else {
+            // Fallback: interpret single instruction directly
+            uint32_t instr;
+            if (!mem_.read_u32(ctx_.pc, instr)) {
+                fprintf(stderr, "[bbarm64] Failed to read instruction at 0x%lx\n", ctx_.pc);
+                break;
+            }
+            
+            // Check for SVC (syscall)
+            if ((instr & 0xFFE0001F) == 0xD4000001) {
+                // This is a syscall instruction
+                ctx_.state_flags |= CPUContext::STATE_IN_SYSCALL;
+                ctx_.pc += 4; // Advance past svc instruction
+            } else {
+                fprintf(stderr, "[bbarm64] Unhandled instruction at 0x%lx: 0x%08x\n", ctx_.pc, instr);
+                break;
+            }
+        }
+
+        // Check if we should continue
+        if (ctx_.state_flags & CPUContext::STATE_IN_SYSCALL) {
+            // Handle syscall, then continue
+            int64_t result = handle_syscall(ctx_);
+            ctx_.x[0] = static_cast<uint64_t>(result);
+            ctx_.state_flags &= ~CPUContext::STATE_IN_SYSCALL;
+        }
+    }
+}
+
+BlockInfo* ExecEngine::translate_block(uint64_t arm_pc) {
+    ARM64Decoder decoder;
+    IRBuilder builder;
+    IROptimizer optimizer;
+    X86_64Emitter emitter;
+    X86_64RegAlloc regalloc;
+
+    // Read ARM64 instructions from memory
+    std::vector<DecodedInstr> instructions;
+    uint64_t pc = arm_pc;
+    const int max_instr = 64;
+
+    for (int i = 0; i < max_instr; i++) {
+        uint32_t raw;
+        if (!mem_.read_u32(pc, raw)) break;
+
+        DecodedInstr instr;
+        if (!decoder.decode(raw, instr)) {
+            fprintf(stderr, "[bbarm64] Failed to decode at 0x%lx: 0x%08x\n", pc, raw);
+            break;
+        }
+
+        instructions.push_back(instr);
+
+        // Stop at branches
+        if (instr.category == InstrCategory::BRANCH ||
+            instr.category == InstrCategory::BRANCH_COND ||
+            instr.category == InstrCategory::SYSCALL) {
+            break;
+        }
+
+        pc += 4;
+    }
+
+    if (instructions.empty()) return nullptr;
+
+    // Build IR
+    IRBlock ir_block;
+    if (!builder.build(instructions.data(), instructions.size(), arm_pc, ir_block)) {
+        return nullptr;
+    }
+
+    // Optimize IR
+    optimizer.optimize(ir_block);
+
+    // Allocate host code memory
+    uint8_t* host_code = cache_.alloc_host_code(4096);  // Max 4KB per block
+    if (!host_code) return nullptr;
+
+    // Emit x86_64 code
+    emitter.set_buffer(host_code, 4096);
+    IRLowering lowering(emitter, regalloc);
+    if (!lowering.lower_block(ir_block, ctx_)) {
+        return nullptr;
+    }
+
+    // Register in cache
+    BlockInfo* block = new BlockInfo();
+    block->arm_pc = arm_pc;
+    block->host_code = host_code;
+    block->host_code_size = emitter.code_size();
+    block->arm_instr_count = ir_block.arm_instr_count;
+    cache_.insert(arm_pc, host_code, emitter.code_size(), ir_block.arm_instr_count);
+
+    // Mark page as translated (for SMC detection)
+    mem_.mark_translated_page(arm_pc);
+
+    return block;
+}
+
+        instructions.push_back(instr);
+
+        // Stop at branches
+        if (instr.category == InstrCategory::BRANCH ||
+            instr.category == InstrCategory::BRANCH_COND ||
+            instr.category == InstrCategory::SYSCALL) {
+            break;
+        }
+
+        pc += 4;
+    }
+
+    if (instructions.empty()) return nullptr;
+
+    // Build IR
+    IRBlock ir_block;
+    if (!builder.build(instructions.data(), instructions.size(), arm_pc, ir_block)) {
+        return nullptr;
+    }
+
+    // Optimize IR
+    optimizer.optimize(ir_block);
+
+    // Allocate host code memory
+    uint8_t* host_code = cache_.alloc_host_code(4096);  // Max 4KB per block
+    if (!host_code) return nullptr;
+
+    // Emit x86_64 code
+    emitter.set_buffer(host_code, 4096);
+    IRLowering lowering(emitter, regalloc);
+    if (!lowering.lower_block(ir_block, ctx_)) {
+        return nullptr;
+    }
+
+    // Register in cache
+    BlockInfo* block = new BlockInfo();
+    block->arm_pc = arm_pc;
+    block->host_code = host_code;
+    block->host_code_size = emitter.code_size();
+    block->arm_instr_count = ir_block.arm_instr_count;
+    cache_.insert(arm_pc, host_code, emitter.code_size(), ir_block.arm_instr_count);
+
+    // Mark page as translated (for SMC detection)
+    mem_.mark_translated_page(arm_pc);
+
+    return block;
+}
+
+void ExecEngine::execute_block(BlockInfo* block) {
+    if (!block || !block->host_code || !block->is_valid) return;
+
+    // Flush cache once more just before execution
+    __builtin___clear_cache(reinterpret_cast<char*>(block->host_code),
+                            reinterpret_cast<char*>(block->host_code + block->host_code_size));
+    
+    // Cast to function pointer and call
+    using BlockFunc = void (*)(CPUContext*);
+    BlockFunc func = reinterpret_cast<BlockFunc>(block->host_code);
+    
+    if (func) {
+        func(&ctx_);
+    }
+}
+
+int ExecEngine::handle_syscall(CPUContext& ctx) {
+    SyscallHandler handler(mem_);
+    return static_cast<int>(handler.execute(ctx));
+}
+
+void ExecEngine::signal_handler(int sig, siginfo_t* info, void* ucontext) {
+    (void)sig;
+    (void)ucontext;
+    
+    // Only log actual crashes, not normal page faults for SMC detection
+    if (s_instance && !(s_instance->ctx_.state_flags & CPUContext::STATE_SINGLE_STEP)) {
+        fprintf(stderr, "\n[bbarm64] FATAL: Segmentation fault at host address %p\n", info->si_addr);
+        fprintf(stderr, "[bbarm64] Current guest PC: 0x%016lx\n", s_instance ? s_instance->ctx_.pc : 0);
+        fprintf(stderr, "[bbarm64] Guest registers:\n");
+        for (int i = 0; i < 8; i++) {
+            fprintf(stderr, "  x%d: 0x%016lx  x%d: 0x%016lx  x%d: 0x%016lx  x%d: 0x%016lx\n",
+                    i, s_instance->ctx_.x[i],
+                    i+8, s_instance->ctx_.x[i+8],
+                    i+16, s_instance->ctx_.x[i+16],
+                    i+24, s_instance->ctx_.x[i+24]);
+        }
+        fprintf(stderr, "  sp: 0x%016lx  lr: 0x%016lx\n", s_instance->ctx_.sp, s_instance->ctx_.lr);
+    }
+    
+    // Set crash flag
+    if (s_instance) {
+        s_instance->ctx_.state_flags |= CPUContext::STATE_CRASHED;
+    }
+    
+    // Only exit on actual hard crashes
+    _exit(EXIT_FAILURE);
+}
+
+} // namespace bbarm64
