@@ -1,3 +1,5 @@
+progress is currently stalled due to the only model that was reliable for this entirely ratelimited and quantized due to demand. v1.3 was supposed to come out today but it won't due to significant issues with the model i was using.
+
 # bbarm64-emu (Block-based ARM64 Emulator.)
 
 **v1.2** — A high-performance ARM64-to-x86_64 dynamic binary translator with JIT compilation.
