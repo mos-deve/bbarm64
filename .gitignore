@@ -44,3 +44,11 @@ test_segfault.c
 test_segfault_fix.cpp
 test_syscalls.cpp
 findings.md
+
+# Project files
+.kilo/
+bbarm64-emu-plan.md
+
+# Project files
+.kilo/
+bbarm64-emu-plan.md

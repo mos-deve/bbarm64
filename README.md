@@ -20,7 +20,6 @@ bbarm64-emu is an ARM64 emulator that runs ARM64 ELF binaries on x86_64 Linux ho
 ### Building
 
 ```bash
-cd bbarm64
 mkdir -p build && cd build
 cmake ..
 make -j$(nproc)
@@ -30,6 +29,8 @@ make -j$(nproc)
 - CMake 3.14+
 - clang++ or g++ with C++20 support
 - x86_64 Linux host
+- Rust toolchain (for memory-safe allocator via cxx bridge)
+- Rust toolchain (for memory-safe allocator via cxx bridge)
 
 ### Running
 
@@ -183,9 +184,10 @@ Core syscalls implemented for ARM64 → x86_64 forwarding:
 ## Project Structure
 
 ```
-bbarm64/
 ├── CMakeLists.txt              # Build configuration
 ├── README.md                   # This file
+├── LICENSE                     # MIT License
+├── .gitignore
 ├── src/
 │   ├── main.cpp                # Entry point, ELF loading, stack setup
 │   ├── core/
@@ -213,8 +215,79 @@ bbarm64/
 │       ├── log.hpp             # Logging utilities
 │       ├── config.hpp          # Configuration from environment
 │       └── profiler.hpp        # Execution profiling
-└── build/                      # Build output
+├── rust/
+│   ├── Cargo.toml              # Rust package config (bbarm64_rust)
+│   ├── Cargo.lock              # Dependency lock file
+│   ├── build.rs                # cxx-build bridge compiler
+│   └── src/
+│       └── lib.rs              # Memory-safe allocator (rust_alloc, rust_free, etc.)
+└── build/                      # Build output (gitignored)
 ```
+
+### Rust Memory-Safe Allocator
+
+The `rust/` directory contains a memory-safe allocator bridged to C++ via [cxx](https://cxx.rs/). It provides:
+
+- **`rust_alloc`** — Memory-safe allocation with proper alignment
+- **`rust_free`** — Memory-safe deallocation
+- **`rust_realloc`** — Memory-safe reallocation
+- **`rust_alloc_executable`** — Allocate executable memory for JIT blocks
+- **`rust_protect_executable`** — Make memory executable after writing JIT code
+- **`rust_free_executable`** — Free executable memory
+
+This ensures all JIT-translated block memory is managed safely without buffer overflows or use-after-free vulnerabilities.
+├── CMakeLists.txt              # Build configuration
+├── README.md                   # This file
+├── LICENSE                     # MIT License
+├── .gitignore
+├── src/
+│   ├── main.cpp                # Entry point, ELF loading, stack setup
+│   ├── core/
+│   │   ├── cpu_context.hpp     # ARM64 CPU state (x0-x30, sp, pc, lr, nzcv)
+│   │   ├── exec_engine.cpp     # Main execution loop, JIT + interpreter
+│   │   └── memory_manager.cpp  # Guest memory management (mmap, read/write)
+│   ├── decoder/
+│   │   └── arm64_decoder.cpp   # ARM64 instruction decoder
+│   ├── ir/
+│   │   ├── ir.hpp              # Intermediate representation definitions
+│   │   ├── ir_builder.cpp      # DecodedInstr → IRBlock
+│   │   └── ir_optimizer.cpp    # Constant propagation, DCE, flag merging
+│   ├── backend/
+│   │   ├── x86_64_emitter.cpp  # x86_64 machine code generator
+│   │   ├── x86_64_regalloc.cpp # Register allocation (ARM64 → x86_64)
+│   │   └── x86_64_lower.cpp    # IR → x86_64 lowering
+│   ├── cache/
+│   │   └── translation_cache.cpp # Block cache with LRU eviction
+│   ├── elf/
+│   │   └── elf_loader.cpp      # ELF binary loader
+│   ├── syscall/
+│   │   ├── syscall_handlers.cpp # Individual syscall implementations
+│   │   └── syscall_table.cpp    # ARM64 → x86_64 syscall number mapping
+│   └── util/
+│       ├── log.hpp             # Logging utilities
+│       ├── config.hpp          # Configuration from environment
+│       └── profiler.hpp        # Execution profiling
+├── rust/
+│   ├── Cargo.toml              # Rust package config (bbarm64_rust)
+│   ├── Cargo.lock              # Dependency lock file
+│   ├── build.rs                # cxx-build bridge compiler
+│   └── src/
+│       └── lib.rs              # Memory-safe allocator (rust_alloc, rust_free, etc.)
+└── build/                      # Build output (gitignored)
+```
+
+### Rust Memory-Safe Allocator
+
+The `rust/` directory contains a memory-safe allocator bridged to C++ via [cxx](https://cxx.rs/). It provides:
+
+- **`rust_alloc`** — Memory-safe allocation with proper alignment
+- **`rust_free`** — Memory-safe deallocation
+- **`rust_realloc`** — Memory-safe reallocation
+- **`rust_alloc_executable`** — Allocate executable memory for JIT blocks
+- **`rust_protect_executable`** — Make memory executable after writing JIT code
+- **`rust_free_executable`** — Free executable memory
+
+This ensures all JIT-translated block memory is managed safely without buffer overflows or use-after-free vulnerabilities.
 
 ## License
 
