@@ -208,47 +208,155 @@ Core syscalls implemented for ARM64 → x86_64 forwarding:
 │   ├── main.cpp                # Entry point, ELF loading, stack setup
 │   ├── core/
 │   │   ├── cpu_context.hpp     # ARM64 CPU state (x0-x30, sp, pc, lr, nzcv, SIMD)
+│   │   ├── cpu_context.cpp     # CPU context implementation
 │   │   ├── exec_engine.cpp     # Main execution loop, AOT + JIT + interpreter
-│   │   └── memory_manager.cpp  # Guest memory management (mmap, read/write)
+│   │   ├── exec_engine.hpp     # Execution engine interface
+│   │   ├── memory_manager.cpp  # Guest memory management (mmap, read/write)
+│   │   └── memory_manager.hpp  # Memory manager interface
 │   ├── decoder/
-│   │   └── arm64_decoder.cpp   # ARM64 instruction decoder
+│   │   ├── arm64_decoder.cpp   # ARM64 instruction decoder
+│   │   └── arm64_decoder.hpp   # Decoder interface
 │   ├── ir/
 │   │   ├── ir.hpp              # Intermediate representation definitions
 │   │   ├── ir_builder.cpp      # DecodedInstr → IRBlock
 │   │   └── ir_optimizer.cpp    # Constant propagation, DCE, flag merging
 │   ├── backend/
 │   │   ├── x86_64_emitter.cpp  # x86_64 machine code generator (AVX2 support)
+│   │   ├── x86_64_emitter.hpp  # Emitter interface
 │   │   ├── x86_64_regalloc.cpp # Register allocation (ARM64 → x86_64)
-│   │   └── x86_64_lower.cpp    # IR → x86_64 lowering (NZCV→EFLAGS)
+│   │   ├── x86_64_regalloc.hpp # RegAlloc interface
+│   │   ├── x86_64_lower.cpp    # IR → x86_64 lowering (NZCV→EFLAGS)
+│   │   └── x86_64_lower.hpp    # Lowering interface
 │   ├── cache/
 │   │   ├── translation_cache.cpp # FAE-Cache: refined block cache
+│   │   ├── translation_cache.hpp # Cache interface
 │   │   └── block_chaining.cpp    # L3 direct block chaining
 │   ├── elf/
 │   │   ├── elf_loader.cpp      # ELF binary loader
-│   │   └── dynlink.cpp         # Dynamic linker (fake ld.so)
+│   │   ├── elf_loader.hpp      # ELF loader interface
+│   │   ├── dynlink.cpp         # Dynamic linker (fake ld.so)
+│   │   └── dynlink.hpp         # Dynamic linker interface
 │   ├── syscall/
 │   │   ├── syscall_handlers.cpp # Individual syscall implementations
-│   │   └── syscall_table.cpp    # ARM64 → x86_64 syscall number mapping
+│   │   ├── syscall_handlers.hpp # Syscall handler interface
+│   │   ├── syscall_table.cpp    # ARM64 → x86_64 syscall number mapping
+│   │   └── syscall_table.hpp    # Syscall table interface
 │   ├── threading/
 │   │   ├── thread_manager.cpp  # Thread management (clone, futex)
-│   │   └── tls_emu.cpp         # TLS emulation (TPIDR_EL0 → FS)
+│   │   ├── thread_manager.hpp  # Thread manager interface
+│   │   ├── tls_emu.cpp         # TLS emulation (TPIDR_EL0 → FS)
+│   │   └── tls_emu.hpp         # TLS emulation interface
 │   └── util/
 │       ├── log.hpp             # Logging utilities
+│       ├── log.cpp             # Logging implementation
 │       ├── config.hpp          # Configuration from environment
-│       └── profiler.hpp        # Execution profiling
+│       ├── config.cpp          # Config implementation
+│       ├── profiler.hpp        # Execution profiling
+│       └── profiler.cpp        # Profiler implementation
 ├── android_libraries/          # Stub libraries for Android compatibility
-│   ├── libc.so.stub
-│   ├── libm.so.stub
-│   ├── liblog.so.stub
-│   ├── libandroid.so.stub
-│   └── libutils.so.stub
+│   ├── README.md               # Android stubs documentation
+│   ├── libc.so.stub            # libc symbol stubs
+│   └── libm.so.stub            # libm symbol stubs
 ├── rust/
 │   ├── Cargo.toml              # Rust package config (bbarm64_rust)
 │   ├── Cargo.lock              # Dependency lock file
 │   ├── build.rs                # cxx-build bridge compiler
-│   └── src/
-│       └── lib.rs              # Memory-safe allocator (rust_alloc, rust_free, etc.)
-└── build/                      # Build output (gitignored)
+│   ├── src/
+│   │   └── lib.rs              # Memory-safe allocator (rust_alloc, rust_free, etc.)
+│   └── target/                 # Rust build output (gitignored)
+├── tests/
+│   ├── README.md               # Test documentation
+│   ├── hello_world.s           # ARM64 assembly hello world source
+│   ├── hello_asm/              # Assembled hello world binary
+│   ├── hello_static/           # Statically-linked test binary
+│   └── hello_dynamic/          # Dynamically-linked test binary
+├── hello_world.c               # C source for hello world test
+├── hello_world_arm64           # Pre-built ARM64 test binary
+├── hello_simple                # Statically-linked musl test binary
+├── hello_glibc_static          # Statically-linked glibc test binary
+├── hello_glibc                 # Dynamically-linked glibc test binary
+├── context.md                  # Development context (agent memory)
+├── findings.md                 # Research findings (agent knowledge base)
+└── build/                      # CMake build output (gitignored)
+```
+├── CMakeLists.txt              # Build configuration
+├── README.md                   # This file
+├── LICENSE                     # MIT License
+├── .gitignore
+├── src/
+│   ├── main.cpp                # Entry point, ELF loading, stack setup
+│   ├── core/
+│   │   ├── cpu_context.hpp     # ARM64 CPU state (x0-x30, sp, pc, lr, nzcv, SIMD)
+│   │   ├── cpu_context.cpp     # CPU context implementation
+│   │   ├── exec_engine.cpp     # Main execution loop, AOT + JIT + interpreter
+│   │   ├── exec_engine.hpp     # Execution engine interface
+│   │   ├── memory_manager.cpp  # Guest memory management (mmap, read/write)
+│   │   └── memory_manager.hpp  # Memory manager interface
+│   ├── decoder/
+│   │   ├── arm64_decoder.cpp   # ARM64 instruction decoder
+│   │   └── arm64_decoder.hpp   # Decoder interface
+│   ├── ir/
+│   │   ├── ir.hpp              # Intermediate representation definitions
+│   │   ├── ir_builder.cpp      # DecodedInstr → IRBlock
+│   │   └── ir_optimizer.cpp    # Constant propagation, DCE, flag merging
+│   ├── backend/
+│   │   ├── x86_64_emitter.cpp  # x86_64 machine code generator (AVX2 support)
+│   │   ├── x86_64_emitter.hpp  # Emitter interface
+│   │   ├── x86_64_regalloc.cpp # Register allocation (ARM64 → x86_64)
+│   │   ├── x86_64_regalloc.hpp # RegAlloc interface
+│   │   ├── x86_64_lower.cpp    # IR → x86_64 lowering (NZCV→EFLAGS)
+│   │   └── x86_64_lower.hpp    # Lowering interface
+│   ├── cache/
+│   │   ├── translation_cache.cpp # FAE-Cache: refined block cache
+│   │   ├── translation_cache.hpp # Cache interface
+│   │   └── block_chaining.cpp    # L3 direct block chaining
+│   ├── elf/
+│   │   ├── elf_loader.cpp      # ELF binary loader
+│   │   ├── elf_loader.hpp      # ELF loader interface
+│   │   ├── dynlink.cpp         # Dynamic linker (fake ld.so)
+│   │   └── dynlink.hpp         # Dynamic linker interface
+│   ├── syscall/
+│   │   ├── syscall_handlers.cpp # Individual syscall implementations
+│   │   ├── syscall_handlers.hpp # Syscall handler interface
+│   │   ├── syscall_table.cpp    # ARM64 → x86_64 syscall number mapping
+│   │   └── syscall_table.hpp    # Syscall table interface
+│   ├── threading/
+│   │   ├── thread_manager.cpp  # Thread management (clone, futex)
+│   │   ├── thread_manager.hpp  # Thread manager interface
+│   │   ├── tls_emu.cpp         # TLS emulation (TPIDR_EL0 → FS)
+│   │   └── tls_emu.hpp         # TLS emulation interface
+│   └── util/
+│       ├── log.hpp             # Logging utilities
+│       ├── log.cpp             # Logging implementation
+│       ├── config.hpp          # Configuration from environment
+│       ├── config.cpp          # Config implementation
+│       ├── profiler.hpp        # Execution profiling
+│       └── profiler.cpp        # Profiler implementation
+├── android_libraries/          # Stub libraries for Android compatibility
+│   ├── README.md               # Android stubs documentation
+│   ├── libc.so.stub            # libc symbol stubs
+│   └── libm.so.stub            # libm symbol stubs
+├── rust/
+│   ├── Cargo.toml              # Rust package config (bbarm64_rust)
+│   ├── Cargo.lock              # Dependency lock file
+│   ├── build.rs                # cxx-build bridge compiler
+│   ├── src/
+│   │   └── lib.rs              # Memory-safe allocator (rust_alloc, rust_free, etc.)
+│   └── target/                 # Rust build output (gitignored)
+├── tests/
+│   ├── README.md               # Test documentation
+│   ├── hello_world.s           # ARM64 assembly hello world source
+│   ├── hello_asm/              # Assembled hello world binary
+│   ├── hello_static/           # Statically-linked test binary
+│   └── hello_dynamic/          # Dynamically-linked test binary
+├── hello_world.c               # C source for hello world test
+├── hello_world_arm64           # Pre-built ARM64 test binary
+├── hello_simple                # Statically-linked musl test binary
+├── hello_glibc_static          # Statically-linked glibc test binary
+├── hello_glibc                 # Dynamically-linked glibc test binary
+├── context.md                  # Development context (agent memory)
+├── findings.md                 # Research findings (agent knowledge base)
+└── build/                      # CMake build output (gitignored)
 ```
 
 ### Rust Memory-Safe Allocator
