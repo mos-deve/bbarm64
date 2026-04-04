@@ -1,0 +1,7 @@
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/bbarm64.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/edit_cache.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/rebuild_cache.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/list_install_components.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/install.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/install/local.dir
+/home/gamingpc/FAE-runner/bbarm64/build/CMakeFiles/install/strip.dir

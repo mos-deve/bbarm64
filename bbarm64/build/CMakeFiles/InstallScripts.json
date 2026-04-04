@@ -1,0 +1,7 @@
+{
+	"InstallScripts" : 
+	[
+		"/home/gamingpc/FAE-runner/bbarm64/build/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
